@@ -6,9 +6,9 @@
 #include <SNMP_Agent.h>
 #include <SNMPTrap.h>
 #include <ElegantOTA.h>
-
 #include <DallasTemperature.h>
 #include <OneWire.h>
+#include <time.h>
 
 #define ONE_WIRE_BUS 22
 #define RELAY_PIN 32
@@ -39,8 +39,10 @@ int freezerTolerance = 3;//
 int coolerTolerance = 3;//вариатор температуры
 int freezerCooldown = 10;//кулдаун компрессора в минутах
 int coolerCooldown = 10;//кулдаун компрессора
-unsigned long uptime; //uptime в секундах
+int64_t uptime; //uptime в секундах
+int64_t basetimer;
 int overloadcounter;//счётчик обнуления millis()
+
 
 void setupWebserver();
 void onOTAEnd(bool success);
@@ -49,9 +51,11 @@ void onOTAProgress(size_t current, size_t final);
 void setupWiFi();
 void setupSNMP();
 float get_ds_temperature(DeviceAddress deviceAddress);
+String get_strUptime(int64_t seconds);
 
 void setup() {
   Serial.begin(9600);
+
   sensors.begin(); //initialise DS18b20 sensors
   Serial.print("Sensors detected: ");
   Serial.print(sensors.getDeviceCount(), DEC);
@@ -69,30 +73,51 @@ void setup() {
   var_ds_temp1 = get_ds_temperature(ds_term1);
   var_ds_temp2 = get_ds_temperature(ds_term2);
   delay(500);
+  int64_t upTimeUS = esp_timer_get_time();
+  basetimer = upTimeUS / 1000000;
 }
 
 
 void loop() {
-  
-  if (ds_timer > 10) {
-    sensors.requestTemperatures();
-    var_ds_temp1 = get_ds_temperature(ds_term1);
-    var_ds_temp2 = get_ds_temperature(ds_term2);
-    Serial.print("t1: ");
-    Serial.print(var_ds_temp1);
-    Serial.print(" | t2: ");
-    Serial.print(var_ds_temp2);
-    Serial.println();
-    ds_timer = 0;  
+  int64_t upTimeUS = esp_timer_get_time(); // in microseconds
+  uptime = upTimeUS / 1000000;
+  if ((uptime - basetimer) >= 1) {
+    Serial.println(get_strUptime(uptime));
+    Serial.println(uptime);
+    Serial.println(basetimer);
+    basetimer = uptime;
   }
+
+  // if (ds_timer > 10) {
+  //   sensors.requestTemperatures();
+  //   var_ds_temp1 = get_ds_temperature(ds_term1);
+  //   var_ds_temp2 = get_ds_temperature(ds_term2);
+  //   // Serial.print("t1: ");
+  //   // Serial.print(var_ds_temp1);
+  //   // Serial.print(" | t2: ");
+  //   // Serial.print(var_ds_temp2);
+  //   // Serial.println();
+  //   ds_timer = 0;  
+  // }
   
   snmp_ds_temp1=int(var_ds_temp1);
   snmp_ds_temp2=int(var_ds_temp2);
-  
   snmp.loop();
   server.handleClient();
   ElegantOTA.loop();
   ds_timer++; // таймер для получения температуры, чтобы избежать delay(100) в лупе
+}
+
+String get_strUptime(int64_t seconds) {
+  char buf[50];
+  uint32_t days = (uint32_t)seconds/86400;
+  uint32_t hr=(uint32_t)seconds % 86400 /  3600;
+  uint32_t min=(uint32_t)seconds %  3600 / 60;
+  uint32_t sec=(uint32_t)seconds % 60;
+  snprintf (buf,sizeof(buf),"%dd %d:%02d:%02d", days, hr, min, sec);
+  String upTime = String(buf);
+  //Serial.println(upTime);
+  return buf;
 }
 
 void setupWebserver() {
