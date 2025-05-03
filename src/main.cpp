@@ -11,7 +11,8 @@
 #include <time.h>
 
 #define ONE_WIRE_BUS 22
-#define RELAY_PIN 32
+#define FREEZER_PIN 21
+
 
 OneWire oneWire(ONE_WIRE_BUS);
 WebServer server(80); //Webserver
@@ -33,16 +34,19 @@ char* str_ds_temp2;
 int ds_timer = 0;
 int var_ds_temp1;
 int var_ds_temp2;
-int freezerTemp; // секция термостатов
-int coolerTemp;
-int freezerTolerance = 3;//
-int coolerTolerance = 3;//вариатор температуры
-int freezerCooldown = 10;//кулдаун компрессора в минутах
-int coolerCooldown = 10;//кулдаун компрессора
+ // секция термостатов
 int64_t uptime; //uptime в секундах
 int64_t basetimer;
-int overloadcounter;//счётчик обнуления millis()
 
+boolean freezer_status = false; // Freezer setup
+int freezerTemp;
+int freezer_uptime = 0;
+int freezerTargetT = -15;
+int freezer_cd = 0;
+int freezer_turncounter = 0;
+int freezer_totaluptime = 0;
+const int freezerTolerance = 3;//
+const int freezer_cd_target = 300; //
 
 void setupWebserver();
 void onOTAEnd(bool success);
@@ -52,11 +56,18 @@ void setupWiFi();
 void setupSNMP();
 float get_ds_temperature(DeviceAddress deviceAddress);
 String get_strUptime(int64_t seconds);
+void eachSecond();
+void printtUptime();
+void printtemperature();
+
+void freezerOn();
+void freezedOff();
+void printFreezerStatus();
 
 void setup() {
   Serial.begin(9600);
-
   sensors.begin(); //initialise DS18b20 sensors
+  delay(500); //delay to sensors init
   Serial.print("Sensors detected: ");
   Serial.print(sensors.getDeviceCount(), DEC);
   if (!sensors.getAddress(ds_term1, 0)) Serial.println("Unable to find address for Device 0");
@@ -77,35 +88,40 @@ void setup() {
   basetimer = upTimeUS / 1000000;
 }
 
-
 void loop() {
   int64_t upTimeUS = esp_timer_get_time(); // in microseconds
   uptime = upTimeUS / 1000000;
   if ((uptime - basetimer) >= 1) {
-    Serial.println(get_strUptime(uptime));
-    Serial.println(uptime);
-    Serial.println(basetimer);
     basetimer = uptime;
+    eachSecond(); // <=== Обработчик всего
   }
-
-  // if (ds_timer > 10) {
-  //   sensors.requestTemperatures();
-  //   var_ds_temp1 = get_ds_temperature(ds_term1);
-  //   var_ds_temp2 = get_ds_temperature(ds_term2);
-  //   // Serial.print("t1: ");
-  //   // Serial.print(var_ds_temp1);
-  //   // Serial.print(" | t2: ");
-  //   // Serial.print(var_ds_temp2);
-  //   // Serial.println();
-  //   ds_timer = 0;  
-  // }
-  
+//No temperature update!
   snmp_ds_temp1=int(var_ds_temp1);
   snmp_ds_temp2=int(var_ds_temp2);
   snmp.loop();
   server.handleClient();
   ElegantOTA.loop();
-  ds_timer++; // таймер для получения температуры, чтобы избежать delay(100) в лупе
+}
+
+void freezerOn() {
+  digitalWrite(FREEZER_PIN, HIGH);
+  freezer_status = true;
+}
+
+void freezerOff() {
+  digitalWrite(FREEZER_PIN, LOW);
+  freezer_status = false;
+}
+
+void printUptime() {
+  Serial.print(get_strUptime(uptime));
+}
+
+void printtemperature() {
+  Serial.print("t1: ");
+  Serial.print(var_ds_temp1);
+  Serial.print(" | t2: ");
+  Serial.print(var_ds_temp2);
 }
 
 String get_strUptime(int64_t seconds) {
@@ -185,4 +201,34 @@ void setupSNMP() {
   snmp.addIntegerHandler(".1.3.6.1.4.1.5.1", &snmp_ds_temp2);
 
   snmp.begin();
+}
+
+void checkFreezer() { //Freezer routine
+  if (freezer_status) { //если включён
+    freezer_uptime++; // пошёл аптайм
+    freezer_totaluptime++;
+  }
+  else {                //если выключен
+    freezer_uptime = 0; //ресет аптайма
+    freezer_cd--; //отсчитываем кулдаун.
+  }
+  
+  if (freezerTemp >= freezerTargetT) {
+
+  }
+}
+void printFreezerStatus() {
+  Serial.print("Freezer temperature: "); Serial.print(var_ds_temp1); Serial.print(" (");Serial.print(freezerTargetT);Serial.print(")");Serial.println();
+  Serial.print("total uptime: "); Serial.print(freezer_totaluptime); Serial.println();
+  Serial.print("turn on counter: ");Serial.print(freezer_turncounter); Serial.println();
+  Serial.print("Freezer status: "); if (freezer_status) {Serial.print("ON");} else {Serial.print("OFF");} Serial.println();
+}
+
+void eachSecond(){
+  //checkFreezer();
+  
+  //printUptime();
+  //printtemperature();
+  printFreezerStatus();
+  //Serial.println();
 }
