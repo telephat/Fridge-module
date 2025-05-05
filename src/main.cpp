@@ -11,7 +11,9 @@
 #include <time.h>
 
 #define ONE_WIRE_BUS 22
-#define FREEZER_PIN 21
+#define FREEZER_PIN 10
+#define COOLER_PIN 11
+#define CONTROL_PIN 12
 
 
 OneWire oneWire(ONE_WIRE_BUS);
@@ -48,6 +50,10 @@ int freezer_totaluptime = 0;
 const int freezerTolerance = 3;//
 const int freezer_cd_target = 300; //
 
+int simulate_direction = 1; // для симулятора работы компрессора, 1 - это камера нагревается (компрессор не работает), 2 - остужается
+float simulate_gain = 0.1; // градусов в секунду
+float simulated_temp;
+
 void setupWebserver();
 void onOTAEnd(bool success);
 void onOTAStart();
@@ -57,12 +63,20 @@ void setupSNMP();
 float get_ds_temperature(DeviceAddress deviceAddress);
 String get_strUptime(int64_t seconds);
 void eachSecond();
-void printtUptime();
+void printUptime();
 void printtemperature();
 
+void checkFreezer();
 void freezerOn();
-void freezedOff();
+void freezerOff();
 void printFreezerStatus();
+
+void checkCooler();
+void coolerOn();
+void coolerOff();
+void printCoolerStatus();
+
+void simulateCompressor();
 
 void setup() {
   Serial.begin(9600);
@@ -86,6 +100,11 @@ void setup() {
   delay(500);
   int64_t upTimeUS = esp_timer_get_time();
   basetimer = upTimeUS / 1000000;
+
+  // **** SIMULATION ****** //
+  var_ds_temp1 = 0;
+  simulated_temp = var_ds_temp1 * 1.0;
+  
 }
 
 void loop() {
@@ -102,6 +121,58 @@ void loop() {
   server.handleClient();
   ElegantOTA.loop();
 }
+
+
+void checkCooler() {
+  if (freezer_status) { //если включён
+    freezer_uptime++; // пошёл аптайм
+    freezer_totaluptime++;
+  }
+  else {                //если выключен
+    freezer_uptime = 0; //ресет аптайма
+    if (freezer_cd > 0) { //если кд есть 
+      freezer_cd--; //отсчитываем кулдаун.
+    }
+  }
+
+  if ((freezer_cd == 0) and (freezer_status == false) and (freezerTemp >= freezerTargetT-freezerTolerance)) {
+    //Если нет КД, и компрессор выключен, и температура выше, чем заданная, то
+    freezerOn();
+    freezer_cd = freezer_cd_target;
+    Serial.println("Turning freezer ON");
+  }
+  else if (freezerTemp <= freezerTargetT and freezer_status == true)
+  //в противносм случае, если температура нужная и компрессор включён
+  {
+    freezerOff();
+    Serial.println("Turnin freezer OFF");
+  }
+  Serial.println("------");
+  Serial.println("Переменные: ");
+  Serial.print("freezer_cd: ");Serial.print(freezer_cd);Serial.print(" freezer_status: ");Serial.print(freezer_status);Serial.print(" freezerTemp: ");Serial.print(freezerTemp);
+  Serial.println();
+  Serial.println("------");
+  }
+
+  void printCoolerStatus() {
+  Serial.print("Freezer temperature: "); Serial.print(var_ds_temp1); Serial.print(" (");Serial.print(freezerTargetT);Serial.print(")");Serial.println();
+  Serial.print("total uptime: "); Serial.print(freezer_totaluptime); Serial.println();
+  Serial.print("turn on counter: ");Serial.print(freezer_turncounter); Serial.println();
+  Serial.print("Freezer status: "); if (freezer_status) {Serial.print("ON");} else {Serial.print("OFF");} Serial.println();
+  }
+
+
+void coolerOn() {
+  digitalWrite(COOLER_PIN, HIGH);
+  freezer_status = true;
+}
+
+void coolerOff() {
+  digitalWrite(COOLER_PIN, LOW);
+  freezer_status = false;
+}
+
+void printCoolerStatus();
 
 void freezerOn() {
   digitalWrite(FREEZER_PIN, HIGH);
@@ -134,6 +205,23 @@ String get_strUptime(int64_t seconds) {
   String upTime = String(buf);
   //Serial.println(upTime);
   return buf;
+}
+
+void simulateCompressor(){ // **** SIMULATION
+  String status;
+  freezerTemp = simulated_temp; // <== Убрать!
+  if (freezer_status) {
+    simulated_temp = simulated_temp - simulate_gain;
+    status = "Охаждаем";
+  }
+  else {
+    simulated_temp = simulated_temp + simulate_gain;
+    status = "Выключен";
+  }
+  var_ds_temp1 = simulated_temp;
+  Serial.print("Compressor simulation hit: ");
+  Serial.print(status);
+  Serial.println();
 }
 
 void setupWebserver() {
@@ -210,13 +298,31 @@ void checkFreezer() { //Freezer routine
   }
   else {                //если выключен
     freezer_uptime = 0; //ресет аптайма
-    freezer_cd--; //отсчитываем кулдаун.
+    if (freezer_cd > 0) { //если кд есть 
+      freezer_cd--; //отсчитываем кулдаун.
+    }
   }
   
-  if (freezerTemp >= freezerTargetT) {
-
+  if ((freezer_cd == 0) and (freezer_status == false) and (freezerTemp >= freezerTargetT-freezerTolerance)) {
+    //Если нет КД, и компрессор выключен, и температура выше, чем заданная, то
+    freezerOn();
+    freezer_cd = freezer_cd_target;
+    Serial.println("Turning freezer ON");
   }
+  else if (freezerTemp <= freezerTargetT and freezer_status == true)
+  //в противносм случае, если температура нужная и компрессор включён
+  {
+    freezerOff();
+    Serial.println("Turnin freezer OFF");
+  }
+  Serial.println("------");
+  Serial.println("Переменные: ");
+  Serial.print("freezer_cd: ");Serial.print(freezer_cd);Serial.print(" freezer_status: ");Serial.print(freezer_status);Serial.print(" freezerTemp: ");Serial.print(freezerTemp);
+  Serial.println();
+  Serial.println("------");
+
 }
+
 void printFreezerStatus() {
   Serial.print("Freezer temperature: "); Serial.print(var_ds_temp1); Serial.print(" (");Serial.print(freezerTargetT);Serial.print(")");Serial.println();
   Serial.print("total uptime: "); Serial.print(freezer_totaluptime); Serial.println();
@@ -225,10 +331,10 @@ void printFreezerStatus() {
 }
 
 void eachSecond(){
-  //checkFreezer();
-  
+  checkFreezer();
   //printUptime();
-  //printtemperature();
-  printFreezerStatus();
+  //printtemperature()
+  //printFreezerStatus();
   //Serial.println();
+  simulateCompressor();
 }
