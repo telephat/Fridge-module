@@ -30,14 +30,14 @@ int freezer_target = -10;
 int freezer_tolerance = -3;
 boolean freezer_status = false;
 int cooler_temperature = -255;
-int cooler_target = 9;
+int cooler_target = 4;
 boolean cooler_status = false;
 int control_temperature = -255;
-int control_minimum = 5; //вариаторы для выбора оптимальной температуры в камере
-int control_maximum = 9; // контролька решает всё
+int control_minimum = 1; //вариаторы для выбора оптимальной температуры в камере
+int control_maximum = 5; // контролька решает всё
 int f_safeguard = 30; //предохранитель от включения-выклюячения-включения компрессоров
 int f_cd = 5;
-int c_safeguard = 30;
+int c_safeguard = 25; //на 5 секунд раньше, чтобы 2 компрессора не включались одновременно
 int c_cd = 5;
 
 void eachSecond();
@@ -52,6 +52,7 @@ void WiFiSetup();
 void WebServerSetup();
 String WebStatus(u64_t s_uptime, boolean f_status, boolean c_status, int f_temp, int c_temp, int cont_temp);
 String WebPage();
+String WebPage2();
 void WebOnConnect();
 void WebData();
 
@@ -97,7 +98,7 @@ void WebServerSetup () {
 
 void WebOnConnect() {
   //server.send(200, "text/html", WebStatus(uptime_seconds, freezer_status, cooler_status, freezer_temperature, cooler_temperature, control_temperature));
-  server.send(200, "text/html", WebPage());
+  server.send(200, "text/html", WebPage2());
   //server.send(200, "text/plain", "hello world");
 }
 void WebData() {
@@ -108,15 +109,15 @@ String WebStatus(u64_t s_uptime, boolean f_status, boolean c_status, int f_temp,
   String message = String(s_uptime);
   message += "   cooler: ";
   message += String(c_temp);
-  message += "°C (";
+  message += "C (";
   if (c_status) message += "ON)";
   else  message += "OFF) ";
   message += "control: ";
   message += String(cont_temp);
-  message += "°C ";
+  message += "C° ";
   message += "freezer: ";
   message += String(f_temp);
-  message += "°C (";
+  message += "C° (";
   if (f_status) message += "ON)";
   else message += "OFF)";
   return message;
@@ -124,7 +125,6 @@ String WebStatus(u64_t s_uptime, boolean f_status, boolean c_status, int f_temp,
 
 String WebPage() {
   String message = "<!DOCTYPE html>";
-  //message += WebStatus(uptime_seconds, freezer_status, cooler_status, freezer_temperature, cooler_temperature, control_temperature);
   message += "<html> <head> <title> Fridge module </title> <style>";
   message += "#dataContainer {font-family: monospace; white-space: pre-wrap;}";
   message += "</style></head>\n";
@@ -149,7 +149,43 @@ String WebPage() {
   message += "});}\n";
   message += "setInterval(fetchData, 1000);\n";
   message += "</script></body></html>";
+  return message;
+}
 
+String WebPage2() {
+  String message;
+  message = "<!DOCTYPE html>\n";
+  message +="<html> <head> <title> Fridge status </title><style>";
+  message +="#dataContainer {font-family: monospace; white-space: pre-wrap; height: 300px; overflow-y: scroll; border: 1px solid #ccc; padding: 5px; }\n";
+  message +="</style> </head>\n";
+  message +="<body>\n";
+  message +="<div id='dataContainer'></div>\n";
+  message +="<script>\n";
+  message +="function fetchData() {\n";
+  message +="fetch('http://192.168.31.53/data')\n";
+  message +=".then(response => {\n";
+  message +="if (!response.ok) {\n";
+  message +="throw new Error(`HTTP error! status: ${response.status}`);\n";
+  message +="}\n";
+  message +="return response.text();\n";
+  message +="})\n";
+  message +=".then(data => {\n";
+  message +="const dataContainer = document.getElementById('dataContainer');\n";
+  message +="dataContainer.innerHTML += data + '\\n';\n";
+  message +="dataContainer.scrollTop = dataContainer.scrollHeight;\n";
+  message +="})\n";
+  message +=".catch(error => {\n";
+  message +="console.error('Ошибка при чтении данных:', error);\n";
+  message +="const dataContainer = document.getElementById('dataContainer');\n";
+  message +="dataContainer.innerHTML += 'Ошибка: ' + error + '\\n';\n";
+  message +="dataContainer.scrollTop = dataContainer.scrollHeight;\n";
+  message +="});\n";
+  message +="}\n";
+  message +="// Запускаем функцию fetchData каждую секунду\n";
+  message +="setInterval(fetchData, 1000);\n";
+  message +="</script>\n";
+  message +="</body>\n";
+  message +="</html>\n";
   return message;
 }
 
