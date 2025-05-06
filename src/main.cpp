@@ -1,440 +1,247 @@
-#include <Arduino.h>
-#include <WiFi.h>               // ESP32 Core WiFi Library    
-#include <WiFiClient.h>
-#include <WebServer.h>
-#include <WiFiUdp.h>
-#include <SNMP_Agent.h>
-#include <SNMPTrap.h>
-#include <ElegantOTA.h>
-#include <DallasTemperature.h>
 #include <OneWire.h>
+#include <DallasTemperature.h>
 #include <time.h>
+#include <WiFi.h>
+#include <WebServer.h>
 
+// Data wire is plugged into port 2 on the Arduino
 #define ONE_WIRE_BUS 22
-#define FREEZER_PIN 12
-#define COOLER_PIN 13
-//#define CONTROL_PIN 12
-
-
-OneWire oneWire(ONE_WIRE_BUS);
-WebServer server(80); //Webserver
-// Pass our oneWire reference to Dallas Temperature.
-DallasTemperature sensors(&oneWire);
-DeviceAddress ds_term1, ds_term2, ds_term3;
+#define COOLER_PIN 12
+#define FREEZER_PIN 13
 
 const char* ssid = "bg-lsp";
 const char* password = "19316632";
 
-WiFiUDP udp;
-SNMPAgent snmp = SNMPAgent("public");
+WebServer server(80);
 
-unsigned long ota_progress_millis = 0; //elegant OTA
-int snmp_ds_temp1 = -255;
-int snmp_ds_temp2 = -255;
-int snmp_ds_temp3 = -255;
-char* str_ds_temp1;
-char* str_ds_temp2;
-char* str_ds_temp3;
-int ds_timer = 0;
-int var_ds_temp1;
-int var_ds_temp2;
-int var_ds_temp3;
- // секция термостатов
-int64_t uptime; //uptime в секундах
-int64_t basetimer;
+// Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
+OneWire oneWire(ONE_WIRE_BUS);
 
-boolean freezer_status = false; // Freezer setup
-int freezerTemp;
-int freezer_uptime = 0;
-int freezerTargetT = -15;
-int freezer_cd = 0;
-int freezer_turncounter = 0;
-int freezer_totaluptime = 0;
-const int freezerTolerance = 3;//
-const int freezer_cd_target = 300; //
+// Pass our oneWire reference to Dallas Temperature.
+DallasTemperature sensors(&oneWire);
 
-boolean cooler_status = false; // Cooler setup
+int count = 0;
+DeviceAddress term1, term2, term3;
+int64_t uptime_seconds = 0;
+int64_t basetimer = 0;
 
-int simulate_direction = 1; // для симулятора работы компрессора, 1 - это камера нагревается (компрессор не работает), 2 - остужается
-float simulate_gain = 0.1; // градусов в секунду
-float simulated_temp;
+int freezer_temperature = -255;
+int freezer_target = -10;
+int freezer_tolerance = -3;
+boolean freezer_status = false;
+int cooler_temperature = -255;
+int cooler_target = 9;
+boolean cooler_status = false;
+int control_temperature = -255;
+int control_minimum = 5; //вариаторы для выбора оптимальной температуры в камере
+int control_maximum = 9; // контролька решает всё
+int f_safeguard = 30; //предохранитель от включения-выклюячения-включения компрессоров
+int f_cd = 5;
+int c_safeguard = 30;
+int c_cd = 5;
 
-void setupWebserver();
-void onOTAEnd(bool success);
-void onOTAStart();
-void onOTAProgress(size_t current, size_t final);
-void setupWiFi();
-void setupSNMP();
-float get_ds_temperature(DeviceAddress deviceAddress);
-String get_strUptime(int64_t seconds);
 void eachSecond();
-void printUptime();
-void printtemperature();
+void printStatus();
 void checkFreezer();
-void freezerOn();
-void freezerOff();
-void webfreezerOn();
-void webfreezerOff();
-void printFreezerStatus();
 void checkCooler();
 void coolerOn();
 void coolerOff();
-void webcoolerOn();
-void webcoolerOff();
-void printCoolerStatus();
-void simulateCompressor();
-String SendHTML(uint8_t led1stat,uint8_t led2stat);
-void check_weboverride();
+void freezerOn();
+void freezerOff();
+void WiFiSetup();
+void WebServerSetup();
+String WebStatus(u64_t s_uptime, boolean f_status, boolean c_status, int f_temp, int c_temp, int cont_temp);
+String WebPage();
+void WebOnConnect();
+void WebData();
 
-void setup() {
-  pinMode(12, OUTPUT);
-  pinMode(13, OUTPUT);
+void setup(void)
+{
+  // start serial port
+  pinMode(COOLER_PIN, OUTPUT);
+  pinMode(FREEZER_PIN, OUTPUT);
   Serial.begin(9600);
-  sensors.begin(); //initialise DS18b20 sensors
-  delay(500); //delay to sensors init
+  sensors.begin();
+  WiFiSetup();
+  WebServerSetup();
+  delay(1000);
   Serial.print("Sensors detected: ");
   Serial.print(sensors.getDeviceCount(), DEC);
-  if (!sensors.getAddress(ds_term1, 0)) Serial.println("Unable to find address for Device 0");
-  if (!sensors.getAddress(ds_term2, 1)) Serial.println("Unable to find address for Device 1");
-  if (!sensors.getAddress(ds_term3, 2)) Serial.println("Unable to find address for Device 2");
+  if (!sensors.getAddress(term1, 0)) Serial.println("Unable to find addres for 'term1");
+  if (!sensors.getAddress(term2, 0)) Serial.println("Unable to find addres for 'term2");
+  if (!sensors.getAddress(term3, 0)) Serial.println("Unable to find addres for 'term3");
   Serial.println();
-  delay(1000);
-  str_ds_temp1 = (char*)malloc(6);
-  str_ds_temp2 = (char*)malloc(6);
-  setupWiFi();
-  setupSNMP();
-  setupWebserver();
-  sensors.requestTemperatures(); //initial request
-  delay(100);
-  var_ds_temp1 = get_ds_temperature(ds_term1);
-  var_ds_temp2 = get_ds_temperature(ds_term2);
-  var_ds_temp3 = get_ds_temperature(ds_term2);
-  delay(500);
   int64_t upTimeUS = esp_timer_get_time();
   basetimer = upTimeUS / 1000000;
-
-  // // **** SIMULATION ****** //
-  // var_ds_temp1 = 0;
-  // simulated_temp = var_ds_temp1 * 1.0;
-  
+  delay(5000);
 }
 
-void loop() {
+
+void loop()
+{
   int64_t upTimeUS = esp_timer_get_time(); // in microseconds
-  uptime = upTimeUS / 1000000;
-  if ((uptime - basetimer) >= 1) {
-    basetimer = uptime;
-    eachSecond(); // <=== Обработчик всего
-    sensors.requestTemperatures();
-    var_ds_temp1 = get_ds_temperature(ds_term1);
-    var_ds_temp2 = get_ds_temperature(ds_term2);
-    var_ds_temp3 = get_ds_temperature(ds_term3);
-    snmp_ds_temp1=int(var_ds_temp1);
-    snmp_ds_temp2=int(var_ds_temp2);
-    snmp_ds_temp3=int(var_ds_temp3);
-
+  uptime_seconds = upTimeUS / 1000000;
+  if ((uptime_seconds - basetimer) >= 1) {
+    basetimer = uptime_seconds;
+    eachSecond();
   }
-
-  //
-
-  snmp.loop();
   server.handleClient();
-  ElegantOTA.loop();
-  check_weboverride();
 }
 
-void check_weboverride() {
-  if (freezer_status) freezerOn();
-  else freezerOff();
-  if (cooler_status) coolerOn();
-  else coolerOff();
+void WebServerSetup () {
+  server.on("/", WebOnConnect);
+  server.on("/data", WebData);
+  server.begin();
+  Serial.println("Webserver started.");
 }
 
-void checkCooler() {
-  if (freezer_status) { //если включён
-    freezer_uptime++; // пошёл аптайм
-    freezer_totaluptime++;
-  }
-  else {                //если выключен
-    freezer_uptime = 0; //ресет аптайма
-    if (freezer_cd > 0) { //если кд есть 
-      freezer_cd--; //отсчитываем кулдаун.
-    }
-  }
+void WebOnConnect() {
+  //server.send(200, "text/html", WebStatus(uptime_seconds, freezer_status, cooler_status, freezer_temperature, cooler_temperature, control_temperature));
+  server.send(200, "text/html", WebPage());
+  //server.send(200, "text/plain", "hello world");
+}
+void WebData() {
+  server.send(200, "text/plain", WebStatus(uptime_seconds, freezer_status, cooler_status, freezer_temperature, cooler_temperature, control_temperature));
+}
 
-  if ((freezer_cd == 0) and (freezer_status == false) and (freezerTemp >= freezerTargetT-freezerTolerance)) {
-    //Если нет КД, и компрессор выключен, и температура выше, чем заданная, то
-    freezerOn();
-    freezer_cd = freezer_cd_target;
-    Serial.println("Turning freezer ON");
+String WebStatus(u64_t s_uptime, boolean f_status, boolean c_status, int f_temp, int c_temp, int cont_temp) {
+  String message = String(s_uptime);
+  message += "   cooler: ";
+  message += String(c_temp);
+  message += "°C (";
+  if (c_status) message += "ON)";
+  else  message += "OFF) ";
+  message += "control: ";
+  message += String(cont_temp);
+  message += "°C ";
+  message += "freezer: ";
+  message += String(f_temp);
+  message += "°C (";
+  if (f_status) message += "ON)";
+  else message += "OFF)";
+  return message;
+}
+
+String WebPage() {
+  String message = "<!DOCTYPE html>";
+  //message += WebStatus(uptime_seconds, freezer_status, cooler_status, freezer_temperature, cooler_temperature, control_temperature);
+  message += "<html> <head> <title> Fridge module </title> <style>";
+  message += "#dataContainer {font-family: monospace; white-space: pre-wrap;}";
+  message += "</style></head>\n";
+  message += "<body><div id='dataContainer'></div>\n";
+  message += "<script>\n";
+  message += "function fetchData() {\n";
+  message += "fetch('http://192.168.31.53/data')\n";
+  message += ".then(response => {\n";
+  message += "if (!response.ok) {\n";
+  message += "throw new Error(`HTTP error! status: ${response.status}`);\n";
+  message += "}\n";
+  message += "return response.text();\n";
+  message += "})\n";
+  message += ".then(data => {\n";
+  message += "const dataContainer = document.getElementById('dataContainer');\n";
+  message += "dataContainer.innerHTML += data + '\\n';\n"; // Добавляем новую строку
+  message += "})\n";
+  message += ".catch(error => {\n";
+  message += "console.error('Error reading data:', error);\n";
+  message += "const dataContainer = document.getElementById('dataContainer');\n";
+  message += "dataContainer.innerHTML += 'Error: ' + error + '\\n';\n";
+  message += "});}\n";
+  message += "setInterval(fetchData, 1000);\n";
+  message += "</script></body></html>";
+
+  return message;
+}
+
+void WiFiSetup() {
+  WiFi.begin(ssid, password);
+  while (WiFi.status()!= WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
   }
-  else if (freezerTemp <= freezerTargetT and freezer_status == true)
-  //в противносм случае, если температура нужная и компрессор включён
-  {
-    freezerOff();
-    Serial.println("Turnin freezer OFF");
-  }
-  Serial.println("------");
-  Serial.println("Переменные: ");
-  Serial.print("freezer_cd: ");Serial.print(freezer_cd);Serial.print(" freezer_status: ");Serial.print(freezer_status);Serial.print(" freezerTemp: ");Serial.print(freezerTemp);
+  Serial.println("WiFi connected to bg-lsp");
+  Serial.print("IP address: ");Serial.println(WiFi.localIP());
+}
+
+void printStatus() {
+  sensors.requestTemperatures(); // Send the command to get temperatures
+  Serial.print(uptime_seconds);
+  Serial.print("  ");
+  Serial.print("cooler: ");
+  cooler_temperature = sensors.getTempCByIndex(0);
+  Serial.print(cooler_temperature);
+  Serial.print("°C (");
+  if (cooler_status) Serial.print("ON)");
+  else Serial.print("OFF)");
+  Serial.print(" control: ");
+  control_temperature = sensors.getTempCByIndex(1);
+  Serial.print(control_temperature);
+  Serial.print(" freezer: ");
+  freezer_temperature = sensors.getTempCByIndex(2);
+  Serial.print(freezer_temperature);
+  Serial.print("°C (");
+  if (freezer_status) Serial.print("ON)");
+  else Serial.print("OFF)");
   Serial.println();
-  Serial.println("------");
-  }
-
-  void printCoolerStatus() {
-  Serial.print("Freezer temperature: "); Serial.print(var_ds_temp1); Serial.print(" (");Serial.print(freezerTargetT);Serial.print(")");Serial.println();
-  Serial.print("total uptime: "); Serial.print(freezer_totaluptime); Serial.println();
-  Serial.print("turn on counter: ");Serial.print(freezer_turncounter); Serial.println();
-  Serial.print("Freezer status: "); if (freezer_status) {Serial.print("ON");} else {Serial.print("OFF");} Serial.println();
-  }
-
-
-void coolerOn() {
-  digitalWrite(COOLER_PIN, HIGH);
-  freezer_status = true;
 }
-
-void webcoolerOn() {
-  cooler_status = true;
-  Serial.println("Web request to turn cooler ON");
-  server.send(200, "text/html", SendHTML(true, freezer_status));
-}
-
-void coolerOff() {
-  digitalWrite(COOLER_PIN, LOW);
-  freezer_status = false;
-}
-
-void webcoolerOff() {
-  cooler_status = false;
-  Serial.println("Web request to turn cooler OFF");
-  server.send(200, "text/html", SendHTML(false, freezer_status));
-}
-
-void printCoolerStatus();
 
 void freezerOn() {
-  digitalWrite(FREEZER_PIN, HIGH);
-  freezer_status = true;
+  if (f_cd <= 0) { // safeguard from turn-on-off-on-off when temperature is on the edge
+    digitalWrite(FREEZER_PIN, HIGH);
+    freezer_status = true;
+  }
+  else {
+    f_cd--;
+  }
+  
 }
-void webfreezerOn() {
-  freezer_status = true;
-  Serial.println("Web request to turn freezer ON");
-  server.send(200, "text/html", SendHTML(cooler_status, true));
-}
-
 void freezerOff() {
   digitalWrite(FREEZER_PIN, LOW);
   freezer_status = false;
+  f_cd = f_safeguard;
 }
-void webfreezerOff() {
-  freezer_status = false;
-  Serial.println("Web request to turn freezer OFF");
-  server.send(200, "text/html", SendHTML(cooler_status, false));
-}
-
-void printUptime() {
-  Serial.print(get_strUptime(uptime));
-}
-
-void printtemperature() {
-  Serial.print("t1: ");
-  Serial.print(var_ds_temp1);
-  Serial.print(" | t2: ");
-  Serial.print(var_ds_temp2);
-  Serial.print(" | t3: ");
-  Serial.print(var_ds_temp3);
-}
-
-String get_strUptime(int64_t seconds) {
-  char buf[50];
-  uint32_t days = (uint32_t)seconds/86400;
-  uint32_t hr=(uint32_t)seconds % 86400 /  3600;
-  uint32_t min=(uint32_t)seconds %  3600 / 60;
-  uint32_t sec=(uint32_t)seconds % 60;
-  snprintf (buf,sizeof(buf),"%dd %d:%02d:%02d", days, hr, min, sec);
-  String upTime = String(buf);
-  //Serial.println(upTime);
-  return buf;
-}
-
-void simulateCompressor(){ // **** SIMULATION
-  String status;
-  freezerTemp = simulated_temp; // <== Убрать!
-  if (freezer_status) {
-    simulated_temp = simulated_temp - simulate_gain;
-    status = "Охаждаем";
+void coolerOn() {
+  if (c_cd <= 0) {
+    digitalWrite(COOLER_PIN, HIGH);
+    cooler_status = true;
   }
   else {
-    simulated_temp = simulated_temp + simulate_gain;
-    status = "Выключен";
-  }
-  var_ds_temp1 = simulated_temp;
-  Serial.print("Compressor simulation hit: ");
-  Serial.print(status);
-  Serial.println();
-}
-
-void setupWebserver() {
-  server.on("/", []() {
-    server.send(200, "text/html", SendHTML(cooler_status, freezer_status));
-  });
-  server.on("/cooleron", webcoolerOn);
-  server.on("/cooleroff", webcoolerOff);
-  server.on("/freezeron", webfreezerOn);
-  server.on("/freezeroff", webfreezerOff);
-
-
-  ElegantOTA.begin(&server);    // Start ElegantOTA
-  // ElegantOTA callbacks
-  ElegantOTA.onStart(onOTAStart);
-  ElegantOTA.onProgress(onOTAProgress);
-  ElegantOTA.onEnd(onOTAEnd);
-
-  server.begin();
-  Serial.println("HTTP server started");
-}
-
-void onOTAEnd(bool success) {
-  // Log when OTA has finished
-  if (success) {
-    Serial.println("OTA update finished successfully!");
-  } else {
-    Serial.println("There was an error during OTA update!");
-  }
-  // <Add your own code here>
-}
-
-void onOTAStart() {
-  // Log when OTA has started
-  Serial.println("OTA update started!");
-  // <Add your own code here>
-}
-
-void onOTAProgress(size_t current, size_t final) {
-  // Log every 1 second
-  if (millis() - ota_progress_millis > 1000) {
-    ota_progress_millis = millis();
-    Serial.printf("OTA Progress Current: %u bytes, Final: %u bytes\n", current, final);
+    c_cd--;
   }
 }
-
-float get_ds_temperature(DeviceAddress deviceAddress) {
-  float tempC = sensors.getTempC(deviceAddress);
-  if (tempC == DEVICE_DISCONNECTED_C) {
-    return -255;
-    delay(50);
-  }
-  else {return tempC;}
+void coolerOff() {
+  digitalWrite(COOLER_PIN, LOW);
+  cooler_status = false;
+  c_cd = c_safeguard;
 }
 
-void setupWiFi() {
-  WiFi.begin(ssid, password);             // Connect to the network
-  while (WiFi.status() != WL_CONNECTED) { // Wait for the Wi-Fi to connect
-    delay(500);
-    Serial.print('.');
-  }
-  Serial.println("Connection established");  
-  Serial.print("IP address:\t");
-  Serial.println(WiFi.localIP());
-}
-
-void setupSNMP() {
-  snmp.setUDP(&udp);
-  // int testnumber = 5;
-  snmp.addIntegerHandler(".1.3.6.1.4.1.5.0", &snmp_ds_temp1);
-  snmp.addIntegerHandler(".1.3.6.1.4.1.5.1", &snmp_ds_temp2);
-  snmp.addIntegerHandler(".1.3.6.1.4.1.5.2", &snmp_ds_temp3);
-  snmp.begin();
-}
-
-void checkFreezer() { //Freezer routine
-  if (freezer_status) { //если включён
-    freezer_uptime++; // пошёл аптайм
-    freezer_totaluptime++;
-  }
-  else {                //если выключен
-    freezer_uptime = 0; //ресет аптайма
-    if (freezer_cd > 0) { //если кд есть 
-      freezer_cd--; //отсчитываем кулдаун.
-    }
+void checkFreezer() {
+  int f_temp = int(freezer_temperature);
+  if (f_temp > freezer_target) {
+    freezerOn();
   }
   
-  if ((freezer_cd == 0) and (freezer_status == false) and (freezerTemp >= freezerTargetT-freezerTolerance)) {
-    //Если нет КД, и компрессор выключен, и температура выше, чем заданная, то
-    freezerOn();
-    freezer_cd = freezer_cd_target;
-    Serial.println("Turning freezer ON");
-  }
-  else if (freezerTemp <= freezerTargetT and freezer_status == true)
-  //в противносм случае, если температура нужная и компрессор включён
+  else if (f_temp <= freezer_target - freezer_tolerance)
   {
     freezerOff();
-    Serial.println("Turnin freezer OFF");
   }
-  Serial.println("------");
-  Serial.println("Переменные: ");
-  Serial.print("freezer_cd: ");Serial.print(freezer_cd);Serial.print(" freezer_status: ");Serial.print(freezer_status);Serial.print(" freezerTemp: ");Serial.print(freezerTemp);
-  Serial.println();
-  Serial.println("------");
-
-}
-int counter1 = 1;
-void printFreezerStatus() {
-  if (counter1 == 10)  {
-    counter1 = 0;
-    Serial.print("Freezer temperature: "); Serial.print(var_ds_temp1); Serial.print(" (");Serial.print(freezerTargetT);Serial.print(")");Serial.println();
-    Serial.print("total uptime: "); Serial.print(freezer_totaluptime); Serial.println();
-    Serial.print("turn on counter: ");Serial.print(freezer_turncounter); Serial.println();
-    Serial.print("Freezer status: "); if (freezer_status) {Serial.print("ON");} else {Serial.print("OFF");} Serial.println();
   
-  }
-}
-String SendHTML(uint8_t led1stat,uint8_t led2stat){
-  String ptr = "<!DOCTYPE html> <html>\n";
-  ptr +="<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, user-scalable=no\">\n";
-  ptr +="<title>LED Control</title>\n";
-  ptr +="<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}\n";
-  ptr +="body{margin-top: 50px;} h1 {color: #444444;margin: 50px auto 30px;} h3 {color: #444444;margin-bottom: 50px;}\n";
-  ptr +=".button {display: block;width: 80px;background-color: #3498db;border: none;color: white;padding: 13px 30px;text-decoration: none;font-size: 25px;margin: 0px auto 35px;cursor: pointer;border-radius: 4px;}\n";
-  ptr +=".button-on {background-color: #3498db;}\n";
-  ptr +=".button-on:active {background-color: #2980b9;}\n";
-  ptr +=".button-off {background-color: #34495e;}\n";
-  ptr +=".button-off:active {background-color: #2c3e50;}\n";
-  ptr +="p {font-size: 14px;color: #888;margin-bottom: 10px;}\n";
-  ptr +="</style>\n";
-  ptr +="</head>\n";
-  ptr +="<body>\n";
-  ptr +="<h1>ESP32 Web Server</h1>\n";
-    ptr +="<h3>Using Station(STA) Mode</h3>\n";
-  
-   if(led1stat)
-  {ptr +="<p>LED1 Status: ON</p><a class=\"button button-off\" href=\"/cooleroff\">OFF</a>\n";}
-  else
-  {ptr +="<p>LED1 Status: OFF</p><a class=\"button button-on\" href=\"/cooleron\">ON</a>\n";}
-
-  if(led2stat)
-  {ptr +="<p>LED2 Status: ON</p><a class=\"button button-off\" href=\"/freezeroff\">OFF</a>\n";}
-  else
-  {ptr +="<p>LED2 Status: OFF</p><a class=\"button button-on\" href=\"/freezeron\">ON</a>\n";}
-
-  ptr +="</body>\n";
-  ptr +="</html>\n";
-  return ptr;
 }
 
-int counter2 = 1;
-void eachSecond(){
-  //checkFreezer();
-  //printUptime();
-  if (counter2 == 5) {
-    counter2 = 0;
-    printtemperature();
-    Serial.println();
+void checkCooler() {
+  int c_temp = int(cooler_temperature);
+  int cnt_temp = int(control_temperature);
+  if (cnt_temp > control_maximum) {
+    coolerOn();
   }
-  else counter2++;
+  else if (cnt_temp <= control_minimum)
+  {
+    coolerOff();
+  }
+}
 
-  //printFreezerStatus();
-  //Serial.println();
-  //simulateCompressor();
+void eachSecond() {
+  printStatus();
+  checkFreezer();
+  checkCooler();
 }
