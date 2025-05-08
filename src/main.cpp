@@ -30,18 +30,18 @@ int64_t m_basetimer = 0;
 
 
 int freezer_temperature = -255;
-int freezer_target = -10;
+int freezer_target = -18;
 int freezer_tolerance = -3;
 boolean freezer_status = false;
 int cooler_temperature = -255;
-int cooler_target = 4;
+int cooler_target = 5;
 boolean cooler_status = false;
 int control_temperature = -255;
-int control_minimum = 3; //вариаторы для выбора оптимальной температуры в камере
+int control_minimum = -3; //вариаторы для выбора оптимальной температуры в камере
 int control_maximum = 10; // контролька решает всё
-int f_safeguard = 30; //предохранитель от включения-выклюячения-включения компрессоров
+int f_safeguard = 130; //предохранитель от включения-выклюячения-включения компрессоров
 int f_cd = 5;
-int c_safeguard = 25; //на 5 секунд раньше, чтобы 2 компрессора не включались одновременно
+int c_safeguard = 125; //на 5 секунд раньше, чтобы 2 компрессора не включались одновременно
 int c_cd = 15;
 
 void eachSecond();
@@ -57,6 +57,7 @@ void WebServerSetup();
 String WebStatus(u64_t s_uptime, boolean f_status, boolean c_status, int f_temp, int c_temp, int cont_temp);
 String WebPage();
 String WebPage2();
+String serverurl;
 void WebOnConnect();
 void WebData();
 void eachMinute();
@@ -80,6 +81,7 @@ void setup(void)
   int64_t upTimeUS = esp_timer_get_time();
   s_basetimer = upTimeUS / 1000000;
   m_basetimer = s_basetimer / 60;
+  serverurl = WiFi.localIP().toString();
   delay(5000);
 }
 
@@ -121,17 +123,22 @@ String WebStatus(u64_t s_uptime, boolean f_status, boolean c_status, int f_temp,
   message += "   cooler: ";
   message += String(c_temp);
   message += "°C (";
-  if (c_status) message += "ON)";
-  else  message += "OFF) ";
+  if (c_status) message += "ON";
+  else  message += "OFF";
+  if (c_cd > 0) {message +="[";message +=String(c_cd);message +="]";}
+  message += ") ";
   message += "control: ";
   message += String(cont_temp);
   message += "°C ";
   message += "freezer: ";
   message += String(f_temp);
   message += "°C (";
-  if (f_status) message += "ON)";
-  else message += "OFF)";
-  return message;
+  if (f_status) message += "ON";
+  else message += "OFF";
+  if (f_cd > 0) {
+    message +="[";message +=String(f_cd);message +="]";}
+  message += ") ";
+    return message;
 }
 
 String WebPage() {
@@ -142,7 +149,9 @@ String WebPage() {
   message += "<body><div id='dataContainer'></div>\n";
   message += "<script>\n";
   message += "function fetchData() {\n";
-  message += "fetch('http://192.168.31.53/data')\n";
+  message += "fetch('http://";
+  message += serverurl;
+  message += "/data')\n";
   message += ".then(response => {\n";
   message += "if (!response.ok) {\n";
   message += "throw new Error(`HTTP error! status: ${response.status}`);\n";
@@ -173,7 +182,9 @@ String WebPage2() {
   message +="<div id='dataContainer'></div>\n";
   message +="<script>\n";
   message +="function fetchData() {\n";
-  message +="fetch('http://192.168.31.53/data')\n";
+  message +="fetch('http://";
+  message += serverurl;
+  message += "/data')\n";
   message +=".then(response => {\n";
   message +="if (!response.ok) {\n";
   message +="throw new Error(`HTTP error! status: ${response.status}`);\n";
@@ -278,10 +289,10 @@ void checkFreezer() {
 void checkCooler() {
   int c_temp = int(cooler_temperature);
   int cnt_temp = int(control_temperature);
-  if (cnt_temp > control_maximum) {
+  if (cooler_temperature > cooler_target) {
     coolerOn();
   }
-  else if (cnt_temp <= control_minimum)
+  else if (cooler_temperature < cooler_target)
   {
     coolerOff();
   }
