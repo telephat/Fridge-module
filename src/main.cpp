@@ -4,6 +4,7 @@
 #include <WiFi.h>
 #include <WebServer.h>
 
+
 // Data wire is plugged into port 2 on the Arduino
 #define ONE_WIRE_BUS 22
 #define COOLER_PIN 12
