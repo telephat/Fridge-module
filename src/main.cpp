@@ -23,7 +23,10 @@ DallasTemperature sensors(&oneWire);
 int count = 0;
 DeviceAddress term1, term2, term3;
 int64_t uptime_seconds = 0;
-int64_t basetimer = 0;
+int64_t uptime_minutes = 0;
+int64_t s_basetimer = 0;
+int64_t m_basetimer = 0;
+
 
 int freezer_temperature = -255;
 int freezer_target = -10;
@@ -33,12 +36,12 @@ int cooler_temperature = -255;
 int cooler_target = 4;
 boolean cooler_status = false;
 int control_temperature = -255;
-int control_minimum = 1; //вариаторы для выбора оптимальной температуры в камере
-int control_maximum = 5; // контролька решает всё
+int control_minimum = 3; //вариаторы для выбора оптимальной температуры в камере
+int control_maximum = 10; // контролька решает всё
 int f_safeguard = 30; //предохранитель от включения-выклюячения-включения компрессоров
 int f_cd = 5;
 int c_safeguard = 25; //на 5 секунд раньше, чтобы 2 компрессора не включались одновременно
-int c_cd = 5;
+int c_cd = 15;
 
 void eachSecond();
 void printStatus();
@@ -55,6 +58,7 @@ String WebPage();
 String WebPage2();
 void WebOnConnect();
 void WebData();
+void eachMinute();
 
 void setup(void)
 {
@@ -73,19 +77,25 @@ void setup(void)
   if (!sensors.getAddress(term3, 0)) Serial.println("Unable to find addres for 'term3");
   Serial.println();
   int64_t upTimeUS = esp_timer_get_time();
-  basetimer = upTimeUS / 1000000;
+  s_basetimer = upTimeUS / 1000000;
+  m_basetimer = s_basetimer / 60;
   delay(5000);
 }
-
 
 void loop()
 {
   int64_t upTimeUS = esp_timer_get_time(); // in microseconds
   uptime_seconds = upTimeUS / 1000000;
-  if ((uptime_seconds - basetimer) >= 1) {
-    basetimer = uptime_seconds;
+  uptime_minutes = uptime_seconds / 60;
+  if ((uptime_seconds - s_basetimer) >= 1) {
+    s_basetimer = uptime_seconds;
     eachSecond();
   }
+  if ((uptime_minutes - m_basetimer) >=1) {
+    m_basetimer = uptime_minutes;
+    eachMinute();
+  }
+  
   server.handleClient();
 }
 
@@ -109,15 +119,15 @@ String WebStatus(u64_t s_uptime, boolean f_status, boolean c_status, int f_temp,
   String message = String(s_uptime);
   message += "   cooler: ";
   message += String(c_temp);
-  message += "C (";
+  message += "°C (";
   if (c_status) message += "ON)";
   else  message += "OFF) ";
   message += "control: ";
   message += String(cont_temp);
-  message += "C° ";
+  message += "°C ";
   message += "freezer: ";
   message += String(f_temp);
-  message += "C° (";
+  message += "°C (";
   if (f_status) message += "ON)";
   else message += "OFF)";
   return message;
@@ -280,4 +290,7 @@ void eachSecond() {
   printStatus();
   checkFreezer();
   checkCooler();
+}
+
+void eachMinute() {
 }
