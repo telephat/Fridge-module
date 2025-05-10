@@ -3,7 +3,7 @@
 #include <time.h>
 #include <WiFi.h>
 #include <WebServer.h>
-
+#include <GyverNTP.h>
 
 // Data wire is plugged into port 2 on the Arduino
 #define ONE_WIRE_BUS 22
@@ -12,6 +12,7 @@
 
 const char* ssid = "bg-lsp";
 const char* password = "19316632";
+int GMTOffset = 3;
 
 WebServer server(80);
 
@@ -27,7 +28,6 @@ int64_t uptime_seconds = 0;
 int64_t uptime_minutes = 0;
 int64_t s_basetimer = 0;
 int64_t m_basetimer = 0;
-
 
 int freezer_temperature = -255;
 int freezer_target = -18;
@@ -72,6 +72,11 @@ void setup(void)
   WiFiSetup();
   WebServerSetup();
   delay(1000);
+  Serial.println("Initialising NTP...");
+  delay(1000);
+  NTP.begin(GMTOffset);
+  delay(1000);
+  Serial.println(NTP.toString());
   Serial.print("Sensors detected: ");
   Serial.print(sensors.getDeviceCount(), DEC);
   if (!sensors.getAddress(term1, 0)) Serial.println("Unable to find addres for 'term1");
@@ -101,6 +106,7 @@ void loop()
   
   server.handleClient();
 }
+
 
 void WebServerSetup () {
   server.on("/", WebOnConnect);
