@@ -3,7 +3,11 @@
 #include <time.h>
 #include <WiFi.h>
 #include <WebServer.h>
-#include <GyverNTP.h>
+#include <WiFiUdp.h>
+#include <SNMP_Agent.h>
+#include <SNMPTrap.h>
+
+const char* version = "0.1.1";
 
 // Data wire is plugged into port 2 on the Arduino
 #define ONE_WIRE_BUS 22
@@ -13,6 +17,15 @@
 const char* ssid = "bg-lsp";
 const char* password = "19316632";
 int GMTOffset = 3;
+
+WiFiUDP udp;
+// ***SNMP VARS
+SNMPAgent snmp = SNMPAgent("public", "private");
+// If we want to change the functionaality of an OID callback later, store them here.
+ValueCallback* changingNumberOID;
+ValueCallback* settableNumberOID;
+// TimestampCallback* timestampCallbackOID;
+SNMPTrap* settableNumberTrap = new SNMPTrap("public", SNMP_VERSION_2C);
 
 WebServer server(80);
 
@@ -61,6 +74,8 @@ String serverurl;
 void WebOnConnect();
 void WebData();
 void eachMinute();
+void SNMPSetup();
+int testing = 1;
 
 void setup(void)
 {
@@ -71,12 +86,10 @@ void setup(void)
   sensors.begin();
   WiFiSetup();
   WebServerSetup();
+  snmp.setUDP(&udp);
+  snmp.begin();
+  SNMPSetup();
   delay(1000);
-  Serial.println("Initialising NTP...");
-  delay(1000);
-  NTP.begin(GMTOffset);
-  delay(1000);
-  Serial.println(NTP.toString());
   Serial.print("Sensors detected: ");
   Serial.print(sensors.getDeviceCount(), DEC);
   if (!sensors.getAddress(term1, 0)) Serial.println("Unable to find addres for 'term1");
@@ -105,8 +118,20 @@ void loop()
   }
   
   server.handleClient();
+  snmp.loop();
 }
 
+void SNMPSetup() {
+  changingNumberOID = snmp.addIntegerHandler(".1.3.6.1.4.1.5.0", &cooler_temperature);
+  changingNumberOID = snmp.addIntegerHandler(".1.3.6.1.4.1.5.1", &freezer_temperature);
+  settableNumberOID = snmp.addIntegerHandler(".1.3.6.1.4.1.4.0", &cooler_target, true);
+  settableNumberOID = snmp.addIntegerHandler(".1.3.6.1.4.1.4.1", &freezer_target, true);
+
+  snmp.addIntegerHandler(".1.3.6.1.4.1.3.0", &cooler_temperature);
+  snmp.addIntegerHandler(".1.3.6.1.4.1.3.1", &control_temperature);
+  snmp.addIntegerHandler(".1.3.6.1.4.1.3.2", &freezer_temperature);
+  snmp.sortHandlers();
+}
 
 void WebServerSetup () {
   server.on("/", WebOnConnect);
