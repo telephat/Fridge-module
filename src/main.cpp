@@ -2,6 +2,7 @@
 #include <DallasTemperature.h>
 #include <time.h>
 #include <WiFi.h>
+//#include <WiFiClient.h>
 #include <WebServer.h>
 #include <WiFiUdp.h>
 #include <SNMP_Agent.h>
