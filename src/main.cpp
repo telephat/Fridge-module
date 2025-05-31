@@ -148,30 +148,25 @@ std::string getTimestamp(int64_t uptime) {
 }
 
 void SNMPSetup() {
-  changingNumberOID = snmp.addIntegerHandler(".1.3.6.1.4.1.5.0", &cooler_temperature);
-  changingNumberOID = snmp.addIntegerHandler(".1.3.6.1.4.1.5.1", &freezer_temperature);
-  settableNumberOID = snmp.addIntegerHandler(".1.3.6.1.4.1.4.0", &cooler_target, true);
-  settableNumberOID = snmp.addIntegerHandler(".1.3.6.1.4.1.4.1", &freezer_target, true);
+  //settableNumberOID = snmp.addIntegerHandler(".1.3.6.1.4.1.4.0", &cooler_target, true);
+  //settableNumberOID = snmp.addIntegerHandler(".1.3.6.1.4.1.4.1", &freezer_target, true);
 
-  snmp.addIntegerHandler(".1.3.6.1.4.1.3.0", &cooler_temperature);
-  snmp.addIntegerHandler(".1.3.6.1.4.1.3.1", &control_temperature);
-  snmp.addIntegerHandler(".1.3.6.1.4.1.3.2", &freezer_temperature);
-  // testing snmpwalk
-  //snmp.addIntegerHandler(".1.3.6.1.2.1.1.3.0", &freezer_temperature);
+         snmp.addReadOnlyStaticStringHandler(".1.3.6.1.2.1.1.3.0", deviceName);
+                    snmp.addCounter64Handler(".1.3.6.1.2.1.1.3.1", &uptime_seconds);
+         snmp.addReadOnlyStaticStringHandler(".1.3.6.1.2.1.1.3.2", firmwareVersion);
 
-  snmp.addReadOnlyStaticStringHandler(".1.3.6.1.2.1.1.3.0", deviceName);
-  snmp.addCounter64Handler(".1.3.6.1.2.1.1.3.1", &uptime_seconds);
-  snmp.addReadOnlyStaticStringHandler(".1.3.6.1.2.1.1.3.2", firmwareVersion);
-  snmp.addCounter64Handler(".1.3.6.1.2.1.1.3.3", &c_uptime);
-  snmp.addIntegerHandler(".1.3.6.1.2.1.1.3.4", &c_turnson);
-  snmp.addIntegerHandler(".1.3.6.1.2.1.1.3.5", &c_intstatus);
-  snmp.addIntegerHandler(".1.3.6.1.2.1.1.3.6", &cooler_temperature);
-  snmp.addIntegerHandler(".1.3.6.1.2.1.1.3.7", &control_temperature);
-
-  snmp.addCounter64Handler(".1.3.6.1.2.1.1.3.8", &f_uptime);
-  snmp.addIntegerHandler(".1.3.6.1.2.1.1.3.9", &f_turnson);
-  snmp.addIntegerHandler(".1.3.6.1.2.1.1.3.10", &f_intstatus);
-  snmp.addIntegerHandler(".1.3.6.1.2.1.1.3.11", &freezer_temperature);
+                    snmp.addCounter64Handler(".1.3.6.1.2.1.1.4.0", &c_uptime);
+                      snmp.addIntegerHandler(".1.3.6.1.2.1.1.4.1", &c_turnson);
+                      snmp.addIntegerHandler(".1.3.6.1.2.1.1.4.2", &c_intstatus);
+                      snmp.addIntegerHandler(".1.3.6.1.2.1.1.4.3", &cooler_temperature);
+  //settableNumberOID = snmp.addIntegerHandler(".1.3.6.1.2.1.1.4.4", &cooler_target, true);
+                      snmp.addIntegerHandler(".1.3.6.1.2.1.1.5.0", &control_temperature);
+                    snmp.addCounter64Handler(".1.3.6.1.2.1.1.6.0", &f_uptime);
+                      snmp.addIntegerHandler(".1.3.6.1.2.1.1.6.1", &f_turnson);
+                      snmp.addIntegerHandler(".1.3.6.1.2.1.1.6.2", &f_intstatus);
+                      snmp.addIntegerHandler(".1.3.6.1.2.1.1.6.3", &freezer_temperature);
+  settableNumberOID = snmp.addIntegerHandler(".1.3.6.1.2.1.1.6.4", &freezer_target, true);
+  
   
 //changingStringOID = snmp.addDynamicReadOnlyStringHandler(".1.3.6.1.2.1.1.3.0", deviceUptime);
 //  snmp.addDynamicReadOnlyStringHandler(".1.3.6.1.2.1.1.3.0", deviceName);
