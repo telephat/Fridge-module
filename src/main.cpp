@@ -378,9 +378,9 @@ void checkCooler() {
 }
 
 void eachSecond() {
-  //printStatus();
-  //checkFreezer();
-  //checkCooler();
+  printStatus();
+  checkFreezer();
+  checkCooler();
   if (cooler_status) {c_uptime++;c_intstatus =1;} else {c_intstatus = 0;}
   if (freezer_status) {f_uptime++;f_intstatus =1;} else {f_intstatus = 0;}
 }
