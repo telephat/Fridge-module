@@ -154,12 +154,11 @@ void SNMPSetup() {
          snmp.addReadOnlyStaticStringHandler(".1.3.6.1.2.1.1.3.0", deviceName);
                     snmp.addCounter64Handler(".1.3.6.1.2.1.1.3.1", &uptime_seconds);
          snmp.addReadOnlyStaticStringHandler(".1.3.6.1.2.1.1.3.2", firmwareVersion);
-
                     snmp.addCounter64Handler(".1.3.6.1.2.1.1.4.0", &c_uptime);
                       snmp.addIntegerHandler(".1.3.6.1.2.1.1.4.1", &c_turnson);
                       snmp.addIntegerHandler(".1.3.6.1.2.1.1.4.2", &c_intstatus);
                       snmp.addIntegerHandler(".1.3.6.1.2.1.1.4.3", &cooler_temperature);
-  //settableNumberOID = snmp.addIntegerHandler(".1.3.6.1.2.1.1.4.4", &cooler_target, true);
+  settableNumberOID = snmp.addIntegerHandler(".1.3.6.1.2.1.1.4.4", &cooler_target, true);
                       snmp.addIntegerHandler(".1.3.6.1.2.1.1.5.0", &control_temperature);
                     snmp.addCounter64Handler(".1.3.6.1.2.1.1.6.0", &f_uptime);
                       snmp.addIntegerHandler(".1.3.6.1.2.1.1.6.1", &f_turnson);
