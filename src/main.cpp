@@ -25,8 +25,15 @@ SNMPAgent snmp = SNMPAgent("public", "private");
 // If we want to change the functionaality of an OID callback later, store them here.
 ValueCallback* changingNumberOID;
 ValueCallback* settableNumberOID;
+ValueCallback* changingStringOID;
 // TimestampCallback* timestampCallbackOID;
 SNMPTrap* settableNumberTrap = new SNMPTrap("public", SNMP_VERSION_2C);
+
+std::string deviceName = "Fridge module";
+std::string firmwareVersion = "firmware 30.05.2025 22:48";
+std::string freezerBanner = "Freezer";
+std::string coolerBanner = "Cooler";
+std::string globalBanner = "Fridge status";
 
 WebServer server(80);
 
@@ -38,18 +45,24 @@ DallasTemperature sensors(&oneWire);
 
 int count = 0;
 DeviceAddress term1, term2, term3;
-int64_t uptime_seconds = 0;
+uint64_t uptime_seconds = 0;
+uint64_t f_uptime = 0;
+uint64_t c_uptime = 0;
 int64_t uptime_minutes = 0;
 int64_t s_basetimer = 0;
 int64_t m_basetimer = 0;
+int c_turnson = 0;
+int f_turnson = 0;
 
 int freezer_temperature = -255;
 int freezer_target = -18;
 int freezer_tolerance = -3;
 boolean freezer_status = false;
+int f_intstatus = 0;
 int cooler_temperature = -255;
 int cooler_target = 5;
 boolean cooler_status = false;
+int c_intstatus = 0;
 int control_temperature = -255;
 int control_minimum = -3; //вариаторы для выбора оптимальной температуры в камере
 int control_maximum = 10; // контролька решает всё
@@ -76,6 +89,7 @@ void WebOnConnect();
 void WebData();
 void eachMinute();
 void SNMPSetup();
+std::string getTimestamp(int64_t uptime);
 int testing = 1;
 
 void setup(void)
@@ -122,6 +136,17 @@ void loop()
   snmp.loop();
 }
 
+std::string getTimestamp(int64_t uptime) {
+  //uptime = 141231;
+  int days = (uptime / 86400);
+  int hours = (uptime % 86400) / 3600;
+  int minutes = ((uptime % 86400) % 3600) / 60;
+  int seconds = ((uptime % 86400) % 3600) % 60;
+  String timestamp = String(days)+"d "+ String(hours)+"h "+String(minutes)+"m "+String(seconds)+"s";
+  std::string toreturn(timestamp.c_str(), timestamp.length());
+  return toreturn;
+}
+
 void SNMPSetup() {
   changingNumberOID = snmp.addIntegerHandler(".1.3.6.1.4.1.5.0", &cooler_temperature);
   changingNumberOID = snmp.addIntegerHandler(".1.3.6.1.4.1.5.1", &freezer_temperature);
@@ -131,6 +156,32 @@ void SNMPSetup() {
   snmp.addIntegerHandler(".1.3.6.1.4.1.3.0", &cooler_temperature);
   snmp.addIntegerHandler(".1.3.6.1.4.1.3.1", &control_temperature);
   snmp.addIntegerHandler(".1.3.6.1.4.1.3.2", &freezer_temperature);
+  // testing snmpwalk
+  //snmp.addIntegerHandler(".1.3.6.1.2.1.1.3.0", &freezer_temperature);
+
+  snmp.addReadOnlyStaticStringHandler(".1.3.6.1.2.1.1.3.0", deviceName);
+  snmp.addCounter64Handler(".1.3.6.1.2.1.1.3.1", &uptime_seconds);
+  snmp.addReadOnlyStaticStringHandler(".1.3.6.1.2.1.1.3.2", firmwareVersion);
+  snmp.addCounter64Handler(".1.3.6.1.2.1.1.3.3", &c_uptime);
+  snmp.addIntegerHandler(".1.3.6.1.2.1.1.3.4", &c_turnson);
+  snmp.addIntegerHandler(".1.3.6.1.2.1.1.3.5", &c_intstatus);
+  snmp.addIntegerHandler(".1.3.6.1.2.1.1.3.6", &cooler_temperature);
+  snmp.addIntegerHandler(".1.3.6.1.2.1.1.3.7", &control_temperature);
+
+  snmp.addCounter64Handler(".1.3.6.1.2.1.1.3.8", &f_uptime);
+  snmp.addIntegerHandler(".1.3.6.1.2.1.1.3.9", &f_turnson);
+  snmp.addIntegerHandler(".1.3.6.1.2.1.1.3.10", &f_intstatus);
+  snmp.addIntegerHandler(".1.3.6.1.2.1.1.3.11", &freezer_temperature);
+  
+//changingStringOID = snmp.addDynamicReadOnlyStringHandler(".1.3.6.1.2.1.1.3.0", deviceUptime);
+//  snmp.addDynamicReadOnlyStringHandler(".1.3.6.1.2.1.1.3.0", deviceName);
+// std::string deviceName = "Fridge module";
+// std::string firmwareVersion = "firmware 30.05.2025 22:48";
+// std::string freezerBanner = "Freezer";
+// std::string coolerBanner = "Cooler";
+// std::string globalBanner = "Fridge status";
+
+  
   snmp.sortHandlers();
 }
 
@@ -279,6 +330,7 @@ void freezerOn() {
   if (f_cd <= 0) { // safeguard from turn-on-off-on-off when temperature is on the edge
     digitalWrite(FREEZER_PIN, HIGH);
     freezer_status = true;
+    f_turnson++;
   }
   else {
     f_cd--;
@@ -294,6 +346,7 @@ void coolerOn() {
   if (c_cd <= 0) {
     digitalWrite(COOLER_PIN, HIGH);
     cooler_status = true;
+    c_turnson++;
   }
   else {
     c_cd--;
@@ -331,9 +384,11 @@ void checkCooler() {
 }
 
 void eachSecond() {
-  printStatus();
-  checkFreezer();
-  checkCooler();
+  //printStatus();
+  //checkFreezer();
+  //checkCooler();
+  if (cooler_status) {c_uptime++;c_intstatus =1;} else {c_intstatus = 0;}
+  if (freezer_status) {f_uptime++;f_intstatus =1;} else {f_intstatus = 0;}
 }
 
 void eachMinute() {
