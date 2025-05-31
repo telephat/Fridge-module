@@ -30,7 +30,7 @@ ValueCallback* changingStringOID;
 SNMPTrap* settableNumberTrap = new SNMPTrap("public", SNMP_VERSION_2C);
 
 std::string deviceName = "Fridge module";
-std::string firmwareVersion = "firmware 30.05.2025 22:48";
+std::string firmwareVersion = "firmware 1.06.2025 00:46";
 std::string freezerBanner = "Freezer";
 std::string coolerBanner = "Cooler";
 std::string globalBanner = "Fridge status";
