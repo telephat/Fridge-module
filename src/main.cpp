@@ -355,7 +355,7 @@ void coolerOff() {
 void checkFreezer() {
   int f_temp = int(freezer_temperature);
   if (f_temp > freezer_target) {
-    freezerOn();
+    if (!freezer_status) {freezerOn();}
   }
   
   else if (f_temp <= freezer_target - freezer_tolerance)
@@ -369,7 +369,7 @@ void checkCooler() {
   int c_temp = int(cooler_temperature);
   int cnt_temp = int(control_temperature);
   if (cooler_temperature > cooler_target) {
-    coolerOn();
+    if (!cooler_status) {coolerOn();}
   }
   else if (cooler_temperature < cooler_target)
   {
