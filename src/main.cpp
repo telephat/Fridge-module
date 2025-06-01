@@ -56,7 +56,7 @@ int f_turnson = 0;
 
 int freezer_temperature = -255;
 int freezer_target = -18;
-int freezer_tolerance = -3;
+int freezer_tolerance = 3;
 boolean freezer_status = false;
 int f_intstatus = 0;
 int cooler_temperature = -255;
@@ -354,11 +354,10 @@ void coolerOff() {
 
 void checkFreezer() {
   int f_temp = int(freezer_temperature);
-  if (f_temp > freezer_target) {
+  if (f_temp > freezer_target + freezer_tolerance) { //Включение фризера состоится на цели, но теплее на freezer_tolerance
     if (!freezer_status) {freezerOn();}
   }
-  
-  else if (f_temp <= freezer_target - freezer_tolerance)
+  else if (f_temp <= freezer_target) //Выключение по достижении заданной
   {
     freezerOff();
   }
